@@ -12,7 +12,8 @@ import (
 
 func main() {
 	// Create a context that is canceled when an interrupt or termination signal is received. This helps with
-	// graceful shutdown of the application, cleaning up memory and other resources as needed.
+	// graceful shutdown of the application, cleaning up memory and other resources as needed. The same context
+	// reaches the REPL as well as the HTTP request to the chat endpoint.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop() // Ensure the context is canceled and resources are cleaned up on exit from this main function
 

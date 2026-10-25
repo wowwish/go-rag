@@ -64,6 +64,9 @@ func RunREPL(ctx context.Context, client *llm.Client, opts Options) error {
 		spin := startSpinner("thinking...")
 		var stopOnce sync.Once // Ensures the spinner is stopped only once. sync.Once is a
 		// concurrency primitive that ensures a function is only executed once, even if called from multiple goroutines.
+		// Here, the ChatStream method uses the history slice to generate streaming response chunks and we can
+		// use callback functions to add additional behavior on the streamed chunks - here, we print the streamed
+		// responses from the LLM client into the console using the onDelta callback function argument, using an anonymous function.
 		reply, err := client.ChatStream(ctx, history, func(s string) {
 			stopOnce.Do(spin.Stop) // Stop the spinner only once, even if this callback is called multiple times.
 			fmt.Print(s)           // Print the streamed chat response to the console as it arrives from the LLM.
@@ -107,7 +110,9 @@ func startSpinner(label string) *spinner {
 		for {
 			select {
 			case <-s.stop:
-				fmt.Print("\r\033[K]") // Clear the spinner line when a stop channel element is received
+				fmt.Print("\r\033[K") // Clear the spinner line when a stop channel element is received. The carriage return
+				// "\r" moves the cursor to the start of the line and the "\033[K" is an ANSI escape sequence that clears
+				// the contents in the current line, removing the spinner with its label.
 				return
 			case <-t.C:
 				fmt.Printf("\r%s %s", frames[i%len(frames)], label)

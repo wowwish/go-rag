@@ -21,12 +21,21 @@ type Client struct {
 	sdk openai.Client
 }
 
+// Factory function
 func New(cfg config.Config) *Client {
+	return newClient(cfg, cfg.BaseURL, cfg.APIKey)
+}
+
+func NewEmbedder(cfg config.Config) *Client {
+	return newClient(cfg, cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey)
+}
+
+func newClient(cfg config.Config, baseURL, apiKey string) *Client {
 	opts := []option.RequestOption{}
-	if cfg.BaseURL != "" {
+	if baseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
-	if cfg.APIKey != "" {
+	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(cfg.APIKey))
 	}
 
