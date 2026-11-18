@@ -10,6 +10,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 Then, pull the latest gemma3 model (If using local model with the App)
 ```
 ollama pull gemma3
+ollama pull nomic-embed-text
 ```
 
 Alternatively, you can setup a Cloud API Key from Ollama as the env var **OPENAI_API_KEY** in the `.env` file.

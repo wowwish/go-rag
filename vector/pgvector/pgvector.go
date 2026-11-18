@@ -124,11 +124,10 @@ func (s *Store) Upsert(ctx context.Context, docs []vector.Document) error {
 	const stmt = `
 		INSERT INTO documents (id, content, metadata, embedding)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT DO UPDATE SET
+		ON CONFLICT (id) DO UPDATE SET
 			content = EXCLUDED.content,
 			metadata = EXCLUDED.metadata,
-			embedding = EXCLUDED.embedding
-	`
+			embedding = EXCLUDED.embedding`
 
 	for _, d := range docs {
 		meta, err := marshalMetadata(d.Metadata) // Serialize the Metadata map

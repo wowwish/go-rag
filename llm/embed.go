@@ -21,7 +21,7 @@ func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error)
 	// Hence, we need to use some idx to match embedding output to text input. Also, the OpenAI SDK returns embeddings in
 	// float64 type which we quantize to float32 type in our application to reduce disk usage in our vector store.
 	resp, err := c.sdk.Embeddings.New(ctx, openai.EmbeddingNewParams{
-		Model: c.cfg.Model,
+		Model: c.cfg.EmbeddingModel,
 		Input: openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
 	})
 	if err != nil {

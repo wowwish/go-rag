@@ -19,7 +19,10 @@ type Config struct {
 	// an embedding model. But, this is in place to allow for Cloud API based embedding in future.)
 	EmbeddingModel string
 	IngestDir      string // Directory which will be watched to load documents from
-	ProcessedDir   string
+	ProcessedDir   string // Directory where processed (ingested by vector store) documents will be moved to.
+	HttpAddr       string // What Port to use for the Web Server of this RAG app (needs to be prefixed with a colon)
+	ImageDir       string // Directory from which images will be loaded into the vector database store
+	VisionModel    string // LLM Model used for Vision tasks like producing text-to-image responses using images from the vector store.
 }
 
 func Load() Config {
@@ -37,6 +40,9 @@ func Load() Config {
 		EmbeddingModel:   os.Getenv("EMBEDDING_MODEL"),
 		IngestDir:        os.Getenv("INGEST_DIR"),
 		ProcessedDir:     os.Getenv("PROCESSED_DIR"),
+		HttpAddr:         os.Getenv("HTTP_ADDR"),
+		ImageDir:         os.Getenv("IMAGES_DIR"),
+		VisionModel:      os.Getenv("VISION_MODEL"),
 	}
 
 	if cfg.BaseURL == "" {
@@ -70,6 +76,10 @@ func Load() Config {
 
 	if cfg.ProcessedDir == "" {
 		cfg.ProcessedDir = "./documents/processed"
+	}
+
+	if cfg.ImageDir == "" {
+		cfg.ImageDir = "./documents/images"
 	}
 
 	return cfg

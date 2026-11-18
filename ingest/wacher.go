@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/fsnotify/fsnotify" // package required to create file-system watcher
 )
 
 // Delay to allow file copying processes to complete before the detected new file will start processing
@@ -74,7 +74,7 @@ func Watch(ctx context.Context, opts Options, embedder llm.Embedder, store vecto
 		return fmt.Errorf("read source dir: %w", err)
 	}
 	for _, e := range entries {
-		// skip directories
+		// skip directories and UNIX paths like "." as well as ".."
 		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
@@ -95,7 +95,7 @@ func Watch(ctx context.Context, opts Options, embedder llm.Embedder, store vecto
 		// locks to allow only one function instance access, as we do here for the timers map.
 	)
 
-	// An anonymous function to wait for a period of time (debounceDelay) before processing a file
+	// An anonymous function that waits for a period of time (debounceDelay) before processing a file path
 	schedule := func(path string) {
 		timersMu.Lock()         // Lock the timers map while accessing it
 		defer timersMu.Unlock() // Unlock the mutex and allow access to the timers map when exiting this anonymous function
@@ -105,34 +105,72 @@ func Watch(ctx context.Context, opts Options, embedder llm.Embedder, store vecto
 			// Reset the timer to run the file processing function after the configured delay to give some time for the write of
 			// the newly detected file in source dir to complete. After the time delay from detection, we can start
 			// processing the file without interruption or corrupted data.
-			t.Reset(debounceDelay) // This will cause the timer object to call a processing function after an initial delay of
-			// debounceDelay.
+			t.Reset(debounceDelay) // This will cause the timer object to call its callback function after an initial delay of
+			// debounceDelay. If a timer object encountered an error and persisted in the timers map for a particular path,
+			// and if the file in the path was altered, this ensures that the timer object will be reset and will start processing
+			// the file path again after a delay, and the timer object will be released from the map during processing as
+			// we see in the callback function used below.
 			return
 		}
 
-		// wait for debounceDelay time and then
+		// wait for debounceDelay time and then safely delete the timer for the file path from the timers map, then handle
+		// the file path processing. Here, we use time.AfterFunc() call to call a function on the file path after an initial
+		// debounceDelay time.
 		timers[path] = time.AfterFunc(debounceDelay, func() {
 			timersMu.Lock()
-			delete(timers, path)
+			delete(timers, path) // Delete the timer for path from the map if it already exists, when this callback
+			// function executes.
 			timersMu.Unlock()
-			handle(path)
+			handle(path) // Process the path
 		})
 	}
 
 	for {
 		select {
+		// If context is finished, return
 		case <-ctx.Done():
 			return nil
+		// If we get an event from our file-system notifier
 		case ev, ok := <-w.Events:
 			if !ok {
 				return nil
 			}
+			// If the Events channel is still open and an Event was detected by the fsnotify Watcher
 			if ev.Op&(fsnotify.Create|fsnotify.Write) == 0 {
 				continue
 			}
+			// Filter the watcher event to skip file paths that we don't want to process
 			if !shouldProcess(ev.Name, processAbs) {
 				continue
 			}
+			schedule(ev.Name)
+		case err, ok := <-w.Errors:
+			if !ok {
+				return nil // Retun when the Errors channel was already closed
+			}
+			logger.Printf("watcher error: %v", err)
 		}
 	}
+}
+
+func shouldProcess(path, processedAbs string) bool {
+	// Ignore UNIX paths like "." and ".." which signify current directory being watched and parent directory
+	if strings.HasPrefix(filepath.Base(path), ".") {
+		return false
+	}
+	info, err := os.Stat(path) // Get info about the file path
+	// If file path cannot be listed, or if file path is a directory, skip the path
+	if err != nil || info.IsDir() {
+		return false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	// If the file path is in a subdirectory of processed path, we skip it
+	if processedAbs != "" && strings.HasPrefix(abs, processedAbs+string(filepath.Separator)) {
+		return false
+	}
+
+	return true
 }

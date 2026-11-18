@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"rag-course/llm"
+	"rag-course/rag"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ type Options struct {
 }
 
 // A means to read and write messages from console interactively.
-func RunREPL(ctx context.Context, client *llm.Client, opts Options) error {
+func RunREPL(ctx context.Context, client *llm.Client, retriever *rag.Retriever, opts Options) error {
 	in := bufio.NewScanner(os.Stdin)               // object to read from standard input (console)
 	in.Buffer(make([]byte, 0, 64*1024), 1024*1024) // Set the initial buffer size to 64 KB and the maximum buffer size to 1 MB
 	// This is how much content the scanner can read at once, allowing for large inputs without running into buffer
@@ -67,7 +68,30 @@ func RunREPL(ctx context.Context, client *llm.Client, opts Options) error {
 		// Here, the ChatStream method uses the history slice to generate streaming response chunks and we can
 		// use callback functions to add additional behavior on the streamed chunks - here, we print the streamed
 		// responses from the LLM client into the console using the onDelta callback function argument, using an anonymous function.
-		reply, err := client.ChatStream(ctx, history, func(s string) {
+
+		turn := history // Remember that GO does cloning which means any change to history does not affect turn from this point
+		if retriever != nil {
+			// Get the RAG context from topK hits for the last message in history as a single string contextText
+			// This only works if the last message in history has a "user" role. Any other role for the last message in
+			// history will mean the history is kept as it is.
+			contexText, retErr := retriever.Retrieve(ctx, history)
+			if retErr != nil {
+				fmt.Fprintln(os.Stderr, "retrieval error: ", retErr)
+			} else if contexText != "" {
+				// Build a turn with the inline context - inject RAG context string into the last message in history
+				// if it has been verified to be a user message
+				turn = withInlineContext(history, contexText)
+			}
+		}
+
+		// DEBUG: To view the RAG context injected into the user query
+		// if len(turn) > 0 {
+		// 	fmt.Fprintf(os.Stderr, "\nFinal Prompt:\n\n%s", turn[len(turn)-1].Content)
+		// }
+
+		reply, err := client.ChatStream(ctx, turn, func(s string) {
+			// Remember that turn is just a clone of history with additional RAG context in its last message if the last
+			// message was having role "user"
 			stopOnce.Do(spin.Stop) // Stop the spinner only once, even if this callback is called multiple times.
 			fmt.Print(s)           // Print the streamed chat response to the console as it arrives from the LLM.
 		})
@@ -78,11 +102,31 @@ func RunREPL(ctx context.Context, client *llm.Client, opts Options) error {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error: ", err) // Print the error message to the standard error stream
 			history = history[:len(history)-1]      // Remove the last message (user's input) from the conversation history
+			continue                                // Continue the REPL loop even when error is encountered from the chat client
 		}
 
 		// Update the conversation history with the LLM's reply
 		history = append(history, reply)
 	}
+}
+
+// Function to add a context text to the last message in chat history if the last message in history a message with role "user"
+func withInlineContext(history []llm.Message, contexText string) []llm.Message {
+	if len(history) == 0 || contexText == "" {
+		return history
+	}
+	last := history[len(history)-1]
+	if last.Role != "user" {
+		return history
+	}
+
+	out := make([]llm.Message, len(history))
+	copy(out, history)
+	out[len(out)-1] = llm.Message{
+		Role:    "user",
+		Content: contexText + "\n\n--- Question ---\n\n" + last.Content,
+	}
+	return out
 }
 
 // spinner represents a simple console spinner to indicate that the program is processing.
