@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>{{.Title}}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Uses tailwind CSS from CDN for styling -->
 <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -105,8 +106,9 @@
       </div>
     </form>
   </dialog>
-
+ <!-- The main javascript code below is similar to a REPL loop that we run in the Command Line Interface of the App using GO -->
 <script>
+  // Store content from the DOM in variables
   const log = document.getElementById("log");
   const form = document.getElementById("form");
   const input = document.getElementById("input");
@@ -181,8 +183,8 @@
     // Helper attached to the bubble so callers don't have to know
     // which role it is — they just push text in.
     bubble.setMarkdown = (text) => {
-      if (isUser) bubble.textContent = text;
-      else bubble.innerHTML = renderMarkdown(text);
+      if (isUser) bubble.textContent = text; // user query is rendered as plaintext, since that is usually how user input is given
+      else bubble.innerHTML = renderMarkdown(text); // content from the LLM Model can be markdown and must be handled appropriately.
     };
 
     row.appendChild(bubble);
@@ -199,6 +201,7 @@
     const bubble = document.createElement("div");
     bubble.className = "rounded-2xl rounded-bl-sm bg-slate-200 px-4 py-3 shadow-sm";
 
+    // Animate three dots jumping up and down to show that the model is typing/thinking
     const dots = document.createElement("div");
     dots.className = "flex gap-1";
     for (let i = 0; i < 3; i++) {
@@ -263,7 +266,8 @@
       }
     });
   }
-
+  
+  // Logic to handle submitting form with an uploaded image to the form
   imageForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const file = imageFile.files && imageFile.files[0];
@@ -303,10 +307,11 @@
     }
   });
 
+  // Logic to handle for submission with an uploaded file to the form 
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
-    // Reset so picking the same file twice still fires "change".
+    // Reset so user picking the same file twice still fires "change" event to this listener.
     fileInput.value = "";
 
     const notice = renderNotice(`Uploading ${file.name}…`, "info");
@@ -342,6 +347,7 @@
     }
   });
 
+  // Logic to handle the main form submission by user - read the user query and append it to context history
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = input.value.trim();
@@ -350,10 +356,11 @@
     send.disabled = true;
 
     history.push({ role: "user", content: text });
-    render("user", text);
-    const typing = renderTyping();
+    render("user", text); // Render the input text to user
+    const typing = renderTyping(); // Render the LLM typing a response
     let pending = null;
 
+    // Text content has to be rendered within a chat bubble
     function ensureBubble() {
       if (pending) return pending;
       typing.row.remove();
@@ -362,6 +369,8 @@
     }
 
     try {
+      // This is a route that the backend server has to implement to use history with the latest user query
+      // and get back a response from the LLM model.
       const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -377,25 +386,31 @@
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let assembled = "";
+      let assembled = ""; // Text Accumulator for data chunks sent by the backend server
       let errored = null;
 
       // SSE events are delimited by a blank line ("\n\n"). Each event
       // is one or more "field: value" lines; here we only care about
       // the "event:" type and the "data:" payload (JSON-encoded
-      // string).
+      // string). Here, we implement our own simulation of the
+      // Server Sent Events (SSE) protocol using the fetch() API.
+      // We use an infinite loop here to make the UI constantly listen
+      // for data chunks from the backend server.
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) break; // Only quit this loop when the backend has finished sending its data chunks.
         buffer += decoder.decode(value, { stream: true });
 
         let sep;
+        // Process the data chunks received according to the packaging logic used in send() function in "server.go"
         while ((sep = buffer.indexOf("\n\n")) !== -1) {
-          const raw = buffer.slice(0, sep);
+          const raw = buffer.slice(0, sep); // sep holds index of "\n\n" within the data chunk from the server
+          // buffer contains the sub-part of the text data chunk from last "\n\n" exclusive to current "\n\n" inclusive
           buffer = buffer.slice(sep + 2);
 
           let evt = "message", data = "";
           for (const line of raw.split("\n")) {
+            // Split apart the event and data parts of the current sub-part of data chunk
             if (line.startsWith("event:")) evt = line.slice(6).trim();
             else if (line.startsWith("data:")) data += line.slice(5).trim();
           }
